@@ -1,0 +1,75 @@
+name: Build OpenJDK 25 (arm64 only, no Polly)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build_android:
+    strategy:
+      matrix:
+        arch: ["aarch64"]
+        version: [25]
+      fail-fast: false
+
+    name: "Build Java ${{ matrix.version }} for Android ${{matrix.arch}}"
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: set up JDK 1.${{ matrix.version }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ matrix.version }}
+          distribution: temurin
+
+      - name: Install build dependencies
+        run: |
+          sudo apt update
+          sudo apt -y install autoconf python3 python-is-python3 unzip zip systemtap-sdt-dev libxtst-dev libasound2-dev libelf-dev libfontconfig1-dev libx11-dev libxext-dev libxrandr-dev libxrender-dev libxtst-dev libxt-dev clang lld
+
+      - name: Build with CI build script
+        run: export TARGET_VERSION=${{ matrix.version }} && bash "1_ci_build_arch_${{matrix.arch}}.sh"
+
+      - name: Upload JRE build output
+        uses: actions/upload-artifact@v4
+        with:
+          name: "jre${{ matrix.version }}-${{matrix.arch}}"
+          path: jre${{ matrix.version }}*.tar.xz
+
+      - name: Upload JRE debuginfo (untuk membaca offset crash)
+        uses: actions/upload-artifact@v4
+        continue-on-error: true
+        with:
+          name: "jre${{ matrix.version }}-debuginfo-${{matrix.arch}}"
+          path: dizout
+
+  pojav:
+    needs: build_android
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install zip
+        run: sudo apt -y install zip
+
+      - name: Get jre25-aarch64
+        uses: actions/download-artifact@v4
+        with:
+          name: jre25-aarch64
+          path: pojav
+
+      - name: Repack JRE
+        run: |
+          export TARGET_VERSION=25 && bash "9_repackjre.sh" $GITHUB_WORKSPACE/pojav $GITHUB_WORKSPACE/pojav/jre25-pojav
+          zip -j -r $GITHUB_WORKSPACE/jre25-pojav.zip $GITHUB_WORKSPACE/pojav/jre25-pojav/
+
+      - name: Upload jre25-pojav.zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: jre25-pojav-nopolly
+          path: jre25-pojav.zip
